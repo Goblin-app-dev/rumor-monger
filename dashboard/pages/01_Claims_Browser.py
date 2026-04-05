@@ -90,4 +90,4 @@ for row in filtered:
     cols[4].write(row["preview"])
     if cols[5].button("→", key=f"cb_{row['id']}"):
         st.query_params["claim"] = str(row["id"])
-        st.switch_page("pages/00_🏠_Rumour_Feed.py")
+        st.switch_page("pages/00_Rumour_Feed.py")
