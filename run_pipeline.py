@@ -39,9 +39,10 @@ def run_migration():
 
 
 def run_scrapers():
-    log.info("=== Running Reddit scraper ===")
-    from scrapers.reddit_scraper import run as reddit_run
-    reddit_run()
+    # Reddit scraper disabled – using GW + YouTube only
+    # log.info("=== Running Reddit scraper ===")
+    # from scrapers.reddit_scraper import run as reddit_run
+    # reddit_run()
 
     log.info("=== Running YouTube scraper ===")
     from scrapers.youtube_scraper import run as youtube_run

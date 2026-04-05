@@ -74,9 +74,9 @@ cur.close(); conn.close()
 print('Database reset complete')
 "
 
-      - name: Scrape Reddit
-        run: python scrapers/reddit_scraper.py
-        timeout-minutes: 2
+      # Reddit scraper disabled – using GW + YouTube only
+      # - name: Scrape Reddit
+      #   run: python scrapers/reddit_scraper.py
 
       - name: Scrape YouTube
         run: python scrapers/youtube_scraper.py
