@@ -11,7 +11,7 @@ from backend.models import Claim, ClaimEvidence
 
 st.set_page_config(page_title="Claims Browser", page_icon="📋", layout="wide")
 st.title("📋 Claims Browser")
-st.caption("All extracted rumours. Use filters, then click 'Detail' to drill in.")
+st.caption("All extracted rumours. Use filters, then click '→' to drill in.")
 
 STATUS_CONFIG = {
     "confirmed":       {"label": "✅ Confirmed",      "color": "#00c853"},
@@ -36,13 +36,18 @@ def load():
                 "mechanic": c.mechanic_type or "—",
                 "ev":       ev,
                 "text":     c.text,
-                "preview":  c.text[:110] + ("…" if len(c.text)>110 else ""),
+                "preview":  c.text[:110] + ("…" if len(c.text) > 110 else ""),
             })
         return rows
     finally:
         db.close()
 
 all_rows = load()
+
+if not all_rows:
+    st.info("No claims yet. Trigger the pipeline via GitHub Actions to populate the database.")
+    st.stop()
+
 df = pd.DataFrame(all_rows)
 
 # ── Filters ───────────────────────────────────────────────────────────────────
@@ -62,6 +67,10 @@ if search:
 
 st.caption(f"{len(filtered)} of {len(all_rows)} rumours")
 
+if not filtered:
+    st.warning("No rumours match the current filters.")
+    st.stop()
+
 # ── Table + detail buttons ────────────────────────────────────────────────────
 hdr = st.columns([1, 2, 2, 1, 7, 1])
 for col, label in zip(hdr, ["ID","Status","Faction","Sources","Claim Preview","→"]):
@@ -80,7 +89,6 @@ for row in filtered:
     cols[3].write(row["ev"])
     cols[4].write(row["preview"])
     if cols[5].button("→", key=f"cb_{row['id']}"):
-        # Navigate to main app with claim param
         st.markdown(
             f'<meta http-equiv="refresh" content="0;url=/?claim={row["id"]}">',
             unsafe_allow_html=True

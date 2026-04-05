@@ -288,6 +288,11 @@ STATUS_ORDER = {"confirmed":0,"likely":1,"plausible":2,"unreviewed":3,"unsubstan
 filtered.sort(key=lambda r: (STATUS_ORDER.get(r["status"], 9), -r["ev_count"]))
 
 # ── Render cards ──────────────────────────────────────────────────────────────
+if not all_claims:
+    st.info("No claims yet — trigger the **Leak Intel Pipeline** in GitHub Actions to populate the database.")
+    st.markdown("[Go to Actions →](https://github.com/Goblin-app-dev/rumor-monger/actions)")
+    st.stop()
+
 if not filtered:
     st.warning("No rumours match the current filters.")
 else:
