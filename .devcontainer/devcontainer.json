@@ -1,0 +1,18 @@
+{
+  "name": "WH40k Leak Intel",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "ghcr.io/devcontainers/features/postgres:1": {
+      "version": "15"
+    }
+  },
+  "forwardPorts": [8501, 5432],
+  "portsAttributes": {
+    "8501": { "label": "Streamlit" },
+    "5432": { "label": "Postgres" }
+  },
+  "postCreateCommand": "pip install -r requirements.txt && cp .env.example .env",
+  "remoteEnv": {
+    "DATABASE_URL": "postgresql://warhammer:warhammer@localhost:5432/warhammer_leaks"
+  }
+}
