@@ -89,7 +89,5 @@ for row in filtered:
     cols[3].write(row["ev"])
     cols[4].write(row["preview"])
     if cols[5].button("→", key=f"cb_{row['id']}"):
-        st.markdown(
-            f'<meta http-equiv="refresh" content="0;url=/?claim={row["id"]}">',
-            unsafe_allow_html=True
-        )
+        st.query_params["claim"] = str(row["id"])
+        st.switch_page("pages/00_🏠_Rumour_Feed.py")
