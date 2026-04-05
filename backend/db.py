@@ -5,10 +5,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from backend.config import DATABASE_URL
 
-# Supabase (and most hosted Postgres) requires SSL.
-# Add sslmode=require if not already present in the URL.
+# Hosted Postgres (Supabase, Railway, Render, etc.) requires SSL.
+# Add sslmode=require whenever the DB is not localhost and no sslmode is set.
 _db_url = DATABASE_URL
-if _db_url and "sslmode" not in _db_url and "supabase" in _db_url:
+if _db_url and "sslmode" not in _db_url and "localhost" not in _db_url and "127.0.0.1" not in _db_url:
     _db_url += "?sslmode=require"
 
 engine = create_engine(
