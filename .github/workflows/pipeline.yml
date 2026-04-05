@@ -1,11 +1,8 @@
 name: Leak Intel Pipeline
 
 on:
-  # Run automatically every 6 hours
   schedule:
     - cron: "0 */6 * * *"
-
-  # Run manually from the Actions tab with optional full-reset
   workflow_dispatch:
     inputs:
       reset_db:
@@ -22,23 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: warhammer
-          POSTGRES_PASSWORD: warhammer
-          POSTGRES_DB: warhammer_leaks
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
-      DATABASE_URL: postgresql://warhammer:warhammer@localhost:5432/warhammer_leaks
+      DATABASE_URL:         ${{ secrets.DATABASE_URL }}
       REDDIT_CLIENT_ID:     ${{ secrets.REDDIT_CLIENT_ID }}
       REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
       REDDIT_USER_AGENT:    "warhammer-leak-intel/1.0"
@@ -47,44 +29,59 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "ERROR: DATABASE_URL secret is not set!"
+            echo "Go to: Settings → Secrets → Actions → New secret"
+            echo "Name: DATABASE_URL"
+            echo "Value: postgresql://postgres.ybxdtbooijinepvlhndm:Rumormonger40k@aws-1-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require"
+            exit 1
+          fi
+          echo "DATABASE_URL is set (starts with: ${DATABASE_URL:0:30}...)"
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Install yt-dlp
-        run: pip install yt-dlp
+        run: pip install -r requirements.txt yt-dlp
 
       - name: Run schema migration
-        run: |
-          PGPASSWORD=warhammer psql -U warhammer -h localhost -d warhammer_leaks \
-            -f migrations/0001_init_schema.sql
+        run: python -c "
+import os, psycopg2
+conn = psycopg2.connect(os.environ['DATABASE_URL'])
+conn.autocommit = True
+cur = conn.cursor()
+cur.execute(open('migrations/0001_init_schema.sql').read())
+cur.close(); conn.close()
+print('Migration complete')
+"
 
       - name: Reset database (manual trigger only)
         if: ${{ github.event.inputs.reset_db == 'true' }}
-        run: |
-          echo "Resetting database..."
-          PGPASSWORD=warhammer psql -U warhammer -h localhost -d warhammer_leaks -c \
-            "TRUNCATE claim_evidence, claims, documents, sources RESTART IDENTITY CASCADE;"
+        run: python -c "
+import os, psycopg2
+conn = psycopg2.connect(os.environ['DATABASE_URL'])
+conn.autocommit = True
+cur = conn.cursor()
+cur.execute('TRUNCATE claim_evidence, claims, documents, sources RESTART IDENTITY CASCADE;')
+cur.close(); conn.close()
+print('Database reset complete')
+"
 
-      - name: Scrape Reddit (Arctic Shift – no key needed)
+      - name: Scrape Reddit
         run: python scrapers/reddit_scraper.py
         timeout-minutes: 2
 
-      - name: Scrape YouTube (yt-dlp – no key needed)
+      - name: Scrape YouTube
         run: python scrapers/youtube_scraper.py
         timeout-minutes: 4
 
-      - name: Scrape Warhammer Community (official – confirmed claims)
+      - name: Scrape Warhammer Community
         run: python scrapers/wahammer_community_scraper.py
         timeout-minutes: 3
 
@@ -95,11 +92,16 @@ jobs:
         run: python backend/scoring/veracity_engine.py
 
       - name: Print summary
-        run: |
-          PGPASSWORD=warhammer psql -U warhammer -h localhost -d warhammer_leaks -c "
-            SELECT 'sources'   AS table, COUNT(*) FROM sources   UNION ALL
-            SELECT 'documents',          COUNT(*) FROM documents UNION ALL
-            SELECT 'claims',             COUNT(*) FROM claims    UNION ALL
-            SELECT 'evidence',           COUNT(*) FROM claim_evidence;
-            SELECT status, COUNT(*) FROM claims GROUP BY status ORDER BY 2 DESC;
-          "
+        run: python -c "
+import os, psycopg2
+conn = psycopg2.connect(os.environ['DATABASE_URL'])
+cur = conn.cursor()
+for table in ['sources','documents','claims','claim_evidence']:
+    cur.execute(f'SELECT COUNT(*) FROM {table}')
+    print(f'{table}: {cur.fetchone()[0]}')
+cur.execute('SELECT status, COUNT(*) FROM claims GROUP BY status ORDER BY 2 DESC')
+print('--- Status breakdown ---')
+for row in cur.fetchall():
+    print(f'  {row[0]}: {row[1]}')
+cur.close(); conn.close()
+"
