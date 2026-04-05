@@ -134,8 +134,8 @@ if not os.environ.get("DATABASE_URL"):
     st.stop()
 
 try:
-    from backend.db import engine
-    with engine.connect() as _conn:
+    from backend.db import get_engine
+    with get_engine().connect() as _conn:
         pass
 except Exception as _e:
     st.error(f"Cannot connect to the database: {_e}")
