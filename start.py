@@ -167,10 +167,11 @@ def run_pipeline():
     banner("Step 4/5 – Data pipeline (scrape → extract → score)")
 
     steps = [
-        ("Reddit scraper",    "scrapers/reddit_scraper.py",              45),
-        ("YouTube scraper",   "scrapers/youtube_scraper.py",             70),
-        ("Claim extraction",  "backend/nlp/claim_extraction.py",         30),
-        ("Veracity scoring",  "backend/scoring/veracity_engine.py",      15),
+        ("Reddit scraper",          "scrapers/reddit_scraper.py",              45),
+        ("YouTube scraper",         "scrapers/youtube_scraper.py",             70),
+        ("Warhammer Community",     "scrapers/wahammer_community_scraper.py",  60),
+        ("Claim extraction",        "backend/nlp/claim_extraction.py",         30),
+        ("Veracity scoring",        "backend/scoring/veracity_engine.py",      15),
     ]
 
     for label, script, timeout in steps:

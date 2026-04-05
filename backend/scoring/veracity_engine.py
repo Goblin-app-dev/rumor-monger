@@ -49,6 +49,20 @@ def run():
 
         updated = 0
         for claim in claims:
+            # Never downgrade claims confirmed by official GW source
+            if claim.status == "confirmed":
+                # Check if any evidence comes from warhammer_community
+                official = (
+                    db.query(ClaimEvidence)
+                    .join(Document, Document.id == ClaimEvidence.document_id)
+                    .join(Source, Source.id == Document.source_id)
+                    .filter(ClaimEvidence.claim_id == claim.id)
+                    .filter(Source.platform == "warhammer_community")
+                    .first()
+                )
+                if official:
+                    continue  # GW confirmed — never touch it
+
             evidence_rows = (
                 db.query(ClaimEvidence)
                 .filter(ClaimEvidence.claim_id == claim.id)

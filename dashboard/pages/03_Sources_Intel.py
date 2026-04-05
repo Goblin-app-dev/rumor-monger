@@ -60,5 +60,15 @@ st.divider()
 if not df.empty:
     pc = df.groupby("Platform")["Docs"].sum().reset_index()
     fig = px.pie(pc, names="Platform", values="Docs", title="Documents by Platform",
-                 color_discrete_sequence=["#7B2D8B","#C41E3A"])
+                 color_discrete_sequence=["#7B2D8B","#C41E3A","#00c853"])
     st.plotly_chart(fig, use_container_width=True)
+
+st.divider()
+st.markdown("""
+**Source Trust Levels**
+- 🟢 `warhammer_community` — Official GW site, reputation **1.0** → claims auto-marked **Confirmed**
+- 💬 `reddit` — Community posts, reputation starts at **0.5**
+- 📺 `youtube` — Video creators, reputation starts at **0.5**
+
+Adjust reputation scores above to influence the veracity engine.
+""")

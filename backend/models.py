@@ -24,7 +24,7 @@ class Source(Base):
 
     __table_args__ = (
         UniqueConstraint("platform", "handle", name="uq_source_platform_handle"),
-        CheckConstraint("platform IN ('reddit', 'youtube')", name="ck_source_platform"),
+        CheckConstraint("platform IN ('reddit', 'youtube', 'warhammer_community')", name="ck_source_platform"),
     )
 
     def __repr__(self):

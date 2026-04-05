@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS sources (
     id          SERIAL PRIMARY KEY,
-    platform    VARCHAR(20) NOT NULL CHECK (platform IN ('reddit', 'youtube')),
+    platform    VARCHAR(20) NOT NULL CHECK (platform IN ('reddit', 'youtube', 'warhammer_community')),
     handle      TEXT NOT NULL,
     url         TEXT,
     reputation_score FLOAT DEFAULT 0.5,

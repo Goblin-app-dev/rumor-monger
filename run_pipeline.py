@@ -47,6 +47,10 @@ def run_scrapers():
     from scrapers.youtube_scraper import run as youtube_run
     youtube_run()
 
+    log.info("=== Running Warhammer Community scraper ===")
+    from scrapers.wahammer_community_scraper import run as warcom_run
+    warcom_run()
+
 
 def run_nlp():
     log.info("=== Running claim extraction ===")
