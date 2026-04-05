@@ -37,43 +37,56 @@ def _get_api_key() -> str:
     return os.environ.get("GEMINI_API_KEY", "")
 
 
-def _build_prompt(claim: Claim, evidence_texts: list[str]) -> str:
+def _sanitize(text: str) -> str:
+    """Remove characters that break JSON strings."""
+    return (text
+            .replace('\\', ' ')
+            .replace('"', "'")
+            .replace('\n', ' ')
+            .replace('\r', ' ')
+            .strip())
+
+
+def _build_prompt(claim: Claim, evidence_texts: list[str], source_handles: list[str]) -> str:
     evidence_block = "\n\n".join(
-        f"Source {i+1}: {t[:400]}" for i, t in enumerate(evidence_texts[:3])
+        f"Source {i+1} ({source_handles[i] if i < len(source_handles) else 'unknown'}): {_sanitize(t)[:500]}"
+        for i, t in enumerate(evidence_texts[:3])
     )
-    return f"""You are an analyst tracking Warhammer 40,000 11th edition leaks and rumours.
+    source_list = ", ".join(source_handles[:3]) if source_handles else "unknown"
 
-Below is a raw claim extracted from Reddit posts and YouTube videos, followed by the source texts it came from.
+    return f"""You are an expert Warhammer 40,000 analyst tracking what is NEW or CHANGED in 11th edition compared to 10th edition.
 
-RAW CLAIM:
-{claim.text}
+Your job is to extract the SPECIFIC CONTENT from this source — what rules changed, what models are new, what mechanics are different, what points costs shifted.
 
-SOURCE EVIDENCE:
-{evidence_block if evidence_block else "No additional source context available."}
+Do NOT write generic summaries like "analyst expresses excitement" or "source discusses 11th edition".
+Do NOT summarize feelings or opinions — only summarize factual claims about rules, models, mechanics, or points.
 
-Current status: {claim.status}
-Detected mechanic: {claim.mechanic_type or "unknown"}
-Detected faction: {claim.faction or "unknown"}
+SOURCE(S): {source_list}
+SOURCE TYPE: {claim.status} ({'Official GW announcement' if claim.status == 'confirmed' else 'Community leak/rumour'})
 
-Produce a JSON response with exactly these fields:
-{{
-  "ai_title": "Short headline under 10 words describing this rumour",
-  "ai_summary": "2-3 sentences explaining what this rumour claims in plain English, what it would mean for the game if true, and any context from the sources.",
-  "ai_confidence": "1-2 sentences explaining why this claim is credible or not, based on the source quality, number of sources, and consistency.",
-  "ai_faction": "The Warhammer 40k faction this applies to, or 'All Factions' if general, or 'Unknown'"
-}}
+RAW EXTRACTED TEXT:
+{_sanitize(claim.text)}
 
-Return ONLY valid JSON, no markdown, no extra text."""
+FULL SOURCE CONTEXT:
+{evidence_block if evidence_block else 'No additional context available.'}
+
+Instructions:
+1. ai_title: Format as "[Source Name] discusses [specific topic(s)]" — e.g. "Auspex Tactics discusses Intercessor toughness buff and free weapons". List the actual topics, not vague descriptions. Max 15 words.
+2. ai_summary: 2-4 sentences covering ONLY the specific 11th edition changes/reveals mentioned: what rule/model/mechanic changed, how it differs from 10th edition, and what it means for gameplay. Be specific — name units, stats, rules.
+3. ai_confidence: 1-2 sentences on source credibility — is this GW official, a known leaker, a community rumour? How many sources corroborate it?
+4. ai_faction: The specific Warhammer 40k faction (e.g. 'Space Marines', 'Necrons', 'Orks') or 'All Factions' if it applies broadly.
+
+Return only the JSON object."""
 
 
 # JSON schema for strict structured output
 _RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
-        "ai_title":      {"type": "string"},
-        "ai_summary":    {"type": "string"},
-        "ai_confidence": {"type": "string"},
-        "ai_faction":    {"type": "string"},
+        "ai_title":      {"type": "string", "description": "Source name + specific topics discussed, max 15 words"},
+        "ai_summary":    {"type": "string", "description": "2-4 sentences about specific rules/models/mechanics changed in 11th edition"},
+        "ai_confidence": {"type": "string", "description": "1-2 sentences on source credibility"},
+        "ai_faction":    {"type": "string", "description": "Specific faction name or All Factions"},
     },
     "required": ["ai_title", "ai_summary", "ai_confidence", "ai_faction"]
 }
@@ -108,6 +121,7 @@ def run(batch_size: int = 50):
     db = SessionLocal()
     try:
         # Only process claims that haven't been summarized yet
+        # Re-summarize ALL claims so new prompt is applied everywhere
         unsummarized = (
             db.query(Claim)
             .filter(Claim.summarized_at.is_(None))
@@ -119,18 +133,28 @@ def run(batch_size: int = 50):
 
         success = 0
         for claim in unsummarized:
-            # Gather evidence texts for context
+            # Gather evidence texts AND source handles for context
             evidence_rows = db.query(ClaimEvidence).filter(
                 ClaimEvidence.claim_id == claim.id
             ).all()
             evidence_texts = []
+            source_handles = []
             for ev in evidence_rows:
                 doc = db.query(Document).filter_by(id=ev.document_id).first()
                 if doc and doc.raw_text:
                     evidence_texts.append(doc.raw_text[:500])
+                    src = db.query(Source).filter_by(id=doc.source_id).first()
+                    if src:
+                        source_handles.append(src.handle)
+
+            # Skip claims that are too short or lack substantive content
+            if len(claim.text.strip()) < 40:
+                claim.summarized_at = datetime.now(timezone.utc)  # mark done, skip
+                db.flush()
+                continue
 
             try:
-                prompt = _build_prompt(claim, evidence_texts)
+                prompt = _build_prompt(claim, evidence_texts, source_handles)
                 result = _call_gemini(prompt, api_key)
 
                 claim.ai_title      = result.get("ai_title", "")[:200]
@@ -141,14 +165,15 @@ def run(batch_size: int = 50):
 
                 db.flush()
                 success += 1
-                log.info("  ✓ [%d] %s", claim.id, claim.ai_title[:60])
+                log.info("  ✓ [%d] %s", claim.id, claim.ai_title[:70])
 
-                # Free tier: stay well under 15 req/min
+                # Stay under free tier rate limit
                 time.sleep(8)
 
             except Exception as e:
-                log.warning("  ✗ [%d] Gemini error: %s", claim.id, e)
-                time.sleep(2)
+                log.warning("  ✗ [%d] Gemini error: %s — marking for retry", claim.id, e)
+                # Don't mark as summarized — will retry next run
+                time.sleep(3)
 
         db.commit()
         log.info("Summarization complete: %d/%d claims processed.", success, len(unsummarized))
