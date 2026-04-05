@@ -28,17 +28,23 @@ def load():
         db.close()
 
 rows = load()
+
+if not rows:
+    st.info("No sources yet — trigger the **Leak Intel Pipeline** in GitHub Actions first.")
+    st.markdown("[Go to Actions →](https://github.com/Goblin-app-dev/rumor-monger/actions)")
+    st.stop()
+
 df = pd.DataFrame(rows)
 
-sel = st.selectbox("Platform", ["All","reddit","youtube"])
-view = df if sel == "All" else df[df["Platform"]==sel]
+sel = st.selectbox("Platform", ["All", "reddit", "youtube", "warhammer_community"])
+view = df if sel == "All" else df[df["Platform"] == sel]
 st.caption(f"{len(view)} sources")
 
 edited = st.data_editor(
-    view[["ID","Platform","Handle","Docs","Reputation"]],
+    view[["ID", "Platform", "Handle", "Docs", "Reputation"]],
     column_config={"Reputation": st.column_config.NumberColumn(
         min_value=0.0, max_value=1.0, step=0.05, format="%.2f")},
-    disabled=["ID","Platform","Handle","Docs"],
+    disabled=["ID", "Platform", "Handle", "Docs"],
     hide_index=True, use_container_width=True, key="src_editor"
 )
 
@@ -47,7 +53,8 @@ if st.button("💾 Save Reputation Scores"):
     try:
         for _, r in edited.iterrows():
             s = db2.query(Source).filter_by(id=int(r["ID"])).first()
-            if s: s.reputation_score = float(r["Reputation"])
+            if s:
+                s.reputation_score = float(r["Reputation"])
         db2.commit()
         st.cache_data.clear()
         st.success("Saved.")
@@ -60,7 +67,7 @@ st.divider()
 if not df.empty:
     pc = df.groupby("Platform")["Docs"].sum().reset_index()
     fig = px.pie(pc, names="Platform", values="Docs", title="Documents by Platform",
-                 color_discrete_sequence=["#7B2D8B","#C41E3A","#00c853"])
+                 color_discrete_sequence=["#7B2D8B", "#C41E3A", "#00c853"])
     st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
@@ -69,6 +76,4 @@ st.markdown("""
 - 🟢 `warhammer_community` — Official GW site, reputation **1.0** → claims auto-marked **Confirmed**
 - 💬 `reddit` — Community posts, reputation starts at **0.5**
 - 📺 `youtube` — Video creators, reputation starts at **0.5**
-
-Adjust reputation scores above to influence the veracity engine.
 """)
