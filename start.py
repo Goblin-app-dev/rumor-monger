@@ -172,6 +172,7 @@ def run_pipeline():
         ("Warhammer Community",     "scrapers/wahammer_community_scraper.py",  60),
         ("Claim extraction",        "backend/nlp/claim_extraction.py",         30),
         ("Veracity scoring",        "backend/scoring/veracity_engine.py",      15),
+        ("AI summarizer (Gemini)",   "backend/nlp/summarizer.py",               300),
     ]
 
     for label, script, timeout in steps:

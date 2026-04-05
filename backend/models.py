@@ -68,6 +68,11 @@ class Claim(Base):
     mechanic_type = Column(Text)
     status        = Column(String(20), default="unreviewed")
     created_at    = Column(DateTime, default=datetime.utcnow)
+    ai_title      = Column(Text)
+    ai_summary    = Column(Text)
+    ai_confidence = Column(Text)
+    ai_faction    = Column(Text)
+    summarized_at = Column(DateTime)
 
     evidence = relationship("ClaimEvidence", back_populates="claim")
 

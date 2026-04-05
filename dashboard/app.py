@@ -1,13 +1,10 @@
 """
 Warhammer 40k 11th Edition Leak Intelligence System – Main Dashboard
-Home page: rumour feed with confidence indicators. Click any rumour to drill in.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import streamlit as st
-from backend.db import SessionLocal
-from backend.models import Claim, ClaimEvidence, Document, Source
 
 st.set_page_config(
     page_title="WH40k 11th Ed Leak Intel",
@@ -16,13 +13,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Styles ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-  /* Hide default Streamlit header padding */
   .block-container { padding-top: 1.5rem; }
-
-  /* Rumour card */
   .rumour-card {
     background: #1a1a2e;
     border: 1px solid #2a2a4a;
@@ -30,11 +23,7 @@ st.markdown("""
     border-radius: 8px;
     padding: 14px 18px;
     margin-bottom: 10px;
-    cursor: pointer;
-    transition: border-color 0.2s;
   }
-  .rumour-card:hover { border-color: #7b68ee; }
-
   .badge {
     display: inline-block;
     padding: 3px 10px;
@@ -50,126 +39,117 @@ st.markdown("""
   .badge-unsubstantiated { background:#ff6d00; color:#fff; }
   .badge-debunked        { background:#d50000; color:#fff; }
   .badge-unreviewed      { background:#555; color:#fff; }
-
-  .conf-bar-bg {
-    background: #2a2a4a;
-    border-radius: 4px;
-    height: 6px;
-    width: 100%;
-    margin-top: 6px;
-  }
-  .conf-bar-fill {
-    height: 6px;
-    border-radius: 4px;
-  }
-  .claim-text {
-    font-size: 0.92rem;
-    color: #e0e0e0;
-    margin: 6px 0 4px 0;
-    line-height: 1.45;
-  }
-  .meta-text {
-    font-size: 0.75rem;
-    color: #888;
-  }
+  .conf-bar-bg  { background:#2a2a4a; border-radius:4px; height:6px; width:100%; margin-top:6px; }
+  .conf-bar-fill{ height:6px; border-radius:4px; }
+  .claim-title  { font-size:1rem; font-weight:600; color:#fff; margin:6px 0 2px 0; }
+  .claim-text   { font-size:0.85rem; color:#aaa; margin:0 0 4px 0; line-height:1.4; }
+  .meta-text    { font-size:0.75rem; color:#888; }
 </style>
 """, unsafe_allow_html=True)
 
 STATUS_CONFIG = {
-    "confirmed":       {"label": "✅ Confirmed",       "color": "#00c853", "score": 100},
-    "likely":          {"label": "🟢 Likely",           "color": "#64dd17", "score": 75},
-    "plausible":       {"label": "🟡 Plausible",        "color": "#ffd600", "score": 50},
-    "unsubstantiated": {"label": "🟠 Unsubstantiated",  "color": "#ff6d00", "score": 20},
-    "debunked":        {"label": "⛔ Debunked",         "color": "#d50000", "score": 0},
-    "unreviewed":      {"label": "⚪ Unreviewed",       "color": "#777777", "score": 10},
+    "confirmed":       {"label": "✅ Confirmed",      "color": "#00c853", "score": 100},
+    "likely":          {"label": "🟢 Likely",          "color": "#64dd17", "score": 75},
+    "plausible":       {"label": "🟡 Plausible",       "color": "#ffd600", "score": 50},
+    "unsubstantiated": {"label": "🟠 Unsubstantiated", "color": "#ff6d00", "score": 20},
+    "debunked":        {"label": "⛔ Debunked",        "color": "#d50000", "score": 0},
+    "unreviewed":      {"label": "⚪ Unreviewed",      "color": "#777777", "score": 10},
 }
 
-# ── Load data ─────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=30)
+# ── DB guard ──────────────────────────────────────────────────────────────────
+if not os.environ.get("DATABASE_URL"):
+    try:
+        import streamlit as st2
+        url = st2.secrets.get("DATABASE_URL", "")
+        if url:
+            os.environ["DATABASE_URL"] = url
+    except Exception:
+        pass
+
+if not os.environ.get("DATABASE_URL"):
+    st.error("DATABASE_URL is not set.")
+    st.code('DATABASE_URL = "postgresql://..."', language="toml")
+    st.stop()
+
+try:
+    from backend.db import get_engine
+    with get_engine().connect():
+        pass
+except Exception as e:
+    st.error(f"Cannot connect to database: {e}")
+    st.stop()
+
+from backend.db import SessionLocal
+from backend.models import Claim, ClaimEvidence, Document, Source
+
+
+@st.cache_data(ttl=60)
 def load_claims():
     db = SessionLocal()
     try:
-        claims = db.query(Claim).order_by(Claim.id.desc()).all()
         rows = []
-        for c in claims:
-            ev_count = db.query(ClaimEvidence).filter(ClaimEvidence.claim_id == c.id).count()
+        for c in db.query(Claim).order_by(Claim.id.desc()).all():
+            ev = db.query(ClaimEvidence).filter(ClaimEvidence.claim_id == c.id).count()
             rows.append({
                 "id":           c.id,
                 "text":         c.text,
+                "ai_title":     c.ai_title or "",
+                "ai_summary":   c.ai_summary or "",
                 "status":       c.status,
-                "faction":      c.faction,
-                "mechanic":     c.mechanic_type,
-                "unit":         c.unit_or_rule,
-                "edition":      c.edition,
-                "ev_count":     ev_count,
-                "created_at":   str(c.created_at)[:10] if c.created_at else "—",
+                "faction":      c.ai_faction or c.faction or "",
+                "mechanic":     c.mechanic_type or "",
+                "ev_count":     ev,
+                "summarized":   c.summarized_at is not None,
             })
         return rows
     finally:
         db.close()
 
-@st.cache_data(ttl=30)
+
+@st.cache_data(ttl=60)
 def load_stats():
     db = SessionLocal()
     try:
         return {
-            "total_claims":  db.query(Claim).count(),
-            "total_docs":    db.query(Document).count(),
-            "total_sources": db.query(Source).count(),
-            "confirmed":     db.query(Claim).filter(Claim.status=="confirmed").count(),
-            "likely":        db.query(Claim).filter(Claim.status=="likely").count(),
-            "plausible":     db.query(Claim).filter(Claim.status=="plausible").count(),
-            "unsubstantiated": db.query(Claim).filter(Claim.status=="unsubstantiated").count(),
-            "debunked":      db.query(Claim).filter(Claim.status=="debunked").count(),
+            "total":    db.query(Claim).count(),
+            "docs":     db.query(Document).count(),
+            "sources":  db.query(Source).count(),
+            "confirmed":db.query(Claim).filter(Claim.status=="confirmed").count(),
+            "likely":   db.query(Claim).filter(Claim.status=="likely").count(),
+            "plausible":db.query(Claim).filter(Claim.status=="plausible").count(),
         }
     finally:
         db.close()
 
-# ── Route: detail view ────────────────────────────────────────────────────────
-# ── DB connectivity guard ────────────────────────────────────────────────────
-import os
-if not os.environ.get("DATABASE_URL"):
-    st.error("DATABASE_URL is not set. Add it in Streamlit Cloud → App settings → Secrets.")
-    st.code('[secrets]\nDATABASE_URL = "postgresql://user:pass@host:5432/dbname"', language="toml")
-    st.stop()
 
-try:
-    from backend.db import get_engine
-    with get_engine().connect() as _conn:
-        pass
-except Exception as _e:
-    st.error(f"Cannot connect to the database: {_e}")
-    st.info("Make sure DATABASE_URL in your Streamlit secrets points to a live Postgres instance (e.g. Supabase).")
-    st.stop()
-
+# ── Detail view ───────────────────────────────────────────────────────────────
 params = st.query_params
 if "claim" in params:
     claim_id = int(params["claim"])
     db = SessionLocal()
     try:
-        claim = db.query(Claim).filter_by(id=claim_id).first()
-        if not claim:
+        c = db.query(Claim).filter_by(id=claim_id).first()
+        if not c:
             st.error(f"Claim #{claim_id} not found.")
             st.stop()
 
-        cfg = STATUS_CONFIG.get(claim.status, STATUS_CONFIG["unreviewed"])
+        cfg   = STATUS_CONFIG.get(c.status, STATUS_CONFIG["unreviewed"])
         score = cfg["score"]
 
-        # ── Back button ───────────────────────────────────────────────────────
         if st.button("← Back to Rumour Feed"):
             st.query_params.clear()
             st.rerun()
 
-        st.markdown(f"## Rumour #{claim.id}")
+        # ── Header ────────────────────────────────────────────────────────────
+        st.markdown(f"## {c.ai_title or 'Rumour #' + str(c.id)}")
 
-        # ── Header row ────────────────────────────────────────────────────────
-        c1, c2, c3, c4 = st.columns([2,1,1,1])
-        c1.markdown(f"**Status:** {cfg['label']}")
-        c2.metric("Evidence Sources", db.query(ClaimEvidence).filter(ClaimEvidence.claim_id==claim.id).count())
-        c3.metric("Faction", claim.faction or "Unknown")
-        c4.metric("Mechanic", claim.mechanic_type or "—")
+        col1, col2, col3, col4 = st.columns([2,1,1,1])
+        col1.markdown(f"**Status:** {cfg['label']}")
+        ev_count = db.query(ClaimEvidence).filter(ClaimEvidence.claim_id == c.id).count()
+        col2.metric("Evidence Sources", ev_count)
+        col3.metric("Faction", c.ai_faction or c.faction or "Unknown")
+        col4.metric("Mechanic", c.mechanic_type or "—")
 
-        # Confidence bar
         st.markdown(f"""
         <div style="margin:8px 0 16px 0">
           <div style="font-size:0.8rem;color:#aaa;margin-bottom:4px">
@@ -181,144 +161,145 @@ if "claim" in params:
         </div>
         """, unsafe_allow_html=True)
 
-        # ── Full claim text ───────────────────────────────────────────────────
-        st.markdown("### Full Claim")
-        st.markdown(f"> {claim.text}")
+        # ── AI Summary ────────────────────────────────────────────────────────
+        if c.ai_summary:
+            st.markdown("### 🤖 AI Summary")
+            st.markdown(c.ai_summary)
 
-        if claim.unit_or_rule:
-            st.caption(f"Unit / Rule detected: **{claim.unit_or_rule}**")
+            if c.ai_confidence:
+                st.markdown("**Confidence Analysis**")
+                st.info(c.ai_confidence)
+        else:
+            st.markdown("### Claim")
+            st.markdown(f"> {c.text}")
+            st.caption("_(AI summary not yet generated — add GEMINI_API_KEY to enable)_")
 
         st.divider()
 
-        # ── Evidence list ─────────────────────────────────────────────────────
-        evidence = db.query(ClaimEvidence).filter(ClaimEvidence.claim_id == claim.id).all()
+        # ── Raw claim ─────────────────────────────────────────────────────────
+        with st.expander("📄 Raw extracted text"):
+            st.markdown(f"_{c.text}_")
+
+        st.divider()
+
+        # ── Evidence ──────────────────────────────────────────────────────────
+        evidence = db.query(ClaimEvidence).filter(ClaimEvidence.claim_id == c.id).all()
         st.markdown(f"### Evidence ({len(evidence)} source{'s' if len(evidence)!=1 else ''})")
 
         if not evidence:
-            st.info("No evidence linked yet. Re-run the pipeline to find more sources.")
+            st.info("No evidence linked yet.")
         else:
             for i, ev in enumerate(evidence, 1):
                 doc = db.query(Document).filter_by(id=ev.document_id).first()
                 src = db.query(Source).filter_by(id=doc.source_id).first() if doc else None
-
-                platform_icon = "📺" if src and src.platform == "youtube" else "💬"
-                ev_label = "Transcript" if ev.evidence_type == "transcript" else "Post/Comment"
-                handle = src.handle if src else "unknown"
+                icon = {"youtube":"📺","warhammer_community":"🏛️"}.get(
+                    src.platform if src else "", "💬")
                 rep = f"{src.reputation_score:.0%}" if src else "?"
-
-                with st.expander(
-                    f"{platform_icon} [{i}] {ev_label} — {handle}  |  reputation {rep}"
-                ):
+                label = ("✅ Official GW Source" if src and src.platform=="warhammer_community"
+                         else f"{src.handle if src else '?'}")
+                with st.expander(f"{icon} [{i}] {label} — reputation {rep}"):
                     if doc:
-                        col1, col2 = st.columns(2)
-                        col1.caption(f"**Type:** {doc.document_type}")
-                        col2.caption(f"**Platform:** {src.platform.upper() if src else '?'}")
-
-                        if doc.title:
-                            st.markdown(f"**Source:** {doc.title[:100]}")
-                        if doc.url:
-                            st.markdown(f"[Open original]({doc.url})")
-
-                        # Highlight the claim text inside the raw excerpt
-                        raw = (doc.raw_text or "")[:800]
-                        st.text_area("Raw text excerpt", value=raw, height=160,
-                                     disabled=True, key=f"ev_text_{ev.id}")
+                        if doc.title: st.markdown(f"**{doc.title[:100]}**")
+                        if doc.url:   st.markdown(f"[Open original ↗]({doc.url})")
+                        st.caption(f"Type: {doc.document_type} | Platform: {src.platform if src else '?'}")
+                        st.text_area("Excerpt", value=(doc.raw_text or "")[:800],
+                                     height=160, disabled=True, key=f"ev_{ev.id}")
 
         st.divider()
 
         # ── Manual override ───────────────────────────────────────────────────
         st.markdown("### Manual Status Override")
         statuses = ["unreviewed","unsubstantiated","plausible","likely","confirmed","debunked"]
-        cur_idx = statuses.index(claim.status) if claim.status in statuses else 0
-        new_status = st.selectbox("Set status", statuses, index=cur_idx, key="override_sel")
+        idx = statuses.index(c.status) if c.status in statuses else 0
+        new_status = st.selectbox("Status", statuses, index=idx)
         if st.button("💾 Save"):
-            claim.status = new_status
+            c.status = new_status
             db.commit()
             st.cache_data.clear()
-            st.success(f"Status updated to **{new_status}**")
+            st.success(f"Updated to **{new_status}**")
             st.rerun()
 
     finally:
         db.close()
     st.stop()
 
-# ── Main rumour feed ──────────────────────────────────────────────────────────
+
+# ── Rumour feed ───────────────────────────────────────────────────────────────
 st.markdown("# ⚔️ Warhammer 40k 11th Edition — Leak Intelligence")
-st.caption("Live rumours tracked from Reddit and YouTube. Click any card to see full details.")
+st.caption("Live rumours tracked from Reddit, YouTube, and Warhammer Community. Click any card for full details.")
 
 stats = load_stats()
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Total Rumours",    stats["total_claims"])
-c2.metric("Plausible+",       stats["plausible"] + stats["likely"] + stats["confirmed"])
-c3.metric("Documents Scanned",stats["total_docs"])
-c4.metric("Sources Tracked",  stats["total_sources"])
-c5.metric("Confirmed",        stats["confirmed"])
+c1.metric("Total Rumours",     stats["total"])
+c2.metric("Plausible+",        stats["plausible"] + stats["likely"] + stats["confirmed"])
+c3.metric("Docs Scanned",      stats["docs"])
+c4.metric("Sources",           stats["sources"])
+c5.metric("Confirmed (GW)",    stats["confirmed"])
 
 st.divider()
 
-# ── Filters ───────────────────────────────────────────────────────────────────
 all_claims = load_claims()
 
-col1, col2, col3, col4 = st.columns([2,2,2,3])
-status_opts = ["All"] + [s for s in ["confirmed","likely","plausible","unsubstantiated","debunked","unreviewed"]
-                         if any(r["status"]==s for r in all_claims)]
-sel_status  = col1.selectbox("Status", status_opts)
-
-all_factions = sorted({r["faction"] for r in all_claims if r["faction"]})
-sel_faction  = col2.selectbox("Faction", ["All"] + all_factions)
-
-all_mechanics = sorted({r["mechanic"] for r in all_claims if r["mechanic"]})
-sel_mechanic  = col3.selectbox("Mechanic", ["All"] + all_mechanics)
-
-search_text = col4.text_input("🔍 Search claim text", placeholder="e.g. toughness, stratagem…")
-
-# Apply filters
-filtered = all_claims
-if sel_status  != "All": filtered = [r for r in filtered if r["status"]  == sel_status]
-if sel_faction != "All": filtered = [r for r in filtered if r["faction"] == sel_faction]
-if sel_mechanic!= "All": filtered = [r for r in filtered if r["mechanic"]== sel_mechanic]
-if search_text:
-    lo = search_text.lower()
-    filtered = [r for r in filtered if lo in r["text"].lower()]
-
-st.caption(f"Showing **{len(filtered)}** of {len(all_claims)} rumours")
-
-# ── Sort ──────────────────────────────────────────────────────────────────────
-STATUS_ORDER = {"confirmed":0,"likely":1,"plausible":2,"unreviewed":3,"unsubstantiated":4,"debunked":5}
-filtered.sort(key=lambda r: (STATUS_ORDER.get(r["status"], 9), -r["ev_count"]))
-
-# ── Render cards ──────────────────────────────────────────────────────────────
 if not all_claims:
-    st.info("No claims yet — trigger the **Leak Intel Pipeline** in GitHub Actions to populate the database.")
+    st.info("No claims yet — trigger the **Leak Intel Pipeline** in GitHub Actions.")
     st.markdown("[Go to Actions →](https://github.com/Goblin-app-dev/rumor-monger/actions)")
     st.stop()
 
-if not filtered:
-    st.warning("No rumours match the current filters.")
-else:
-    for row in filtered:
-        cfg   = STATUS_CONFIG.get(row["status"], STATUS_CONFIG["unreviewed"])
-        score = cfg["score"]
-        short = row["text"][:160] + ("…" if len(row["text"]) > 160 else "")
-        tags  = " · ".join(filter(None, [row["faction"], row["mechanic"]]))
+# ── Filters ───────────────────────────────────────────────────────────────────
+col1, col2, col3, col4 = st.columns([2,2,2,3])
+status_opts   = ["All"] + [s for s in ["confirmed","likely","plausible","unsubstantiated","debunked","unreviewed"]
+                            if any(r["status"]==s for r in all_claims)]
+sel_status    = col1.selectbox("Status", status_opts)
+all_factions  = sorted({r["faction"] for r in all_claims if r["faction"]})
+sel_faction   = col2.selectbox("Faction", ["All"] + all_factions)
+all_mechanics = sorted({r["mechanic"] for r in all_claims if r["mechanic"]})
+sel_mechanic  = col3.selectbox("Mechanic", ["All"] + all_mechanics)
+search        = col4.text_input("🔍 Search", placeholder="toughness, stratagem…")
 
-        col_card, col_btn = st.columns([10, 1])
-        with col_card:
-            st.markdown(f"""
-            <div class="rumour-card" style="border-left-color:{cfg['color']}">
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
-                <span class="badge badge-{row['status']}">{cfg['label']}</span>
-                <span class="meta-text">#{row['id']} · {row['ev_count']} source{'s' if row['ev_count']!=1 else ''}{' · ' + tags if tags else ''}</span>
-              </div>
-              <div class="claim-text">{short}</div>
-              <div class="conf-bar-bg">
-                <div class="conf-bar-fill" style="width:{score}%;background:{cfg['color']}"></div>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
+filtered = all_claims
+if sel_status   != "All": filtered = [r for r in filtered if r["status"]   == sel_status]
+if sel_faction  != "All": filtered = [r for r in filtered if r["faction"]  == sel_faction]
+if sel_mechanic != "All": filtered = [r for r in filtered if r["mechanic"] == sel_mechanic]
+if search:
+    lo = search.lower()
+    filtered = [r for r in filtered if lo in r["text"].lower()
+                or lo in r["ai_title"].lower() or lo in r["ai_summary"].lower()]
 
-        with col_btn:
-            st.markdown("<div style='margin-top:18px'></div>", unsafe_allow_html=True)
-            if st.button("Details", key=f"btn_{row['id']}"):
-                st.query_params["claim"] = str(row["id"])
-                st.rerun()
+STATUS_ORDER = {"confirmed":0,"likely":1,"plausible":2,"unreviewed":3,"unsubstantiated":4,"debunked":5}
+filtered.sort(key=lambda r: (STATUS_ORDER.get(r["status"],9), -r["ev_count"]))
+
+st.caption(f"Showing **{len(filtered)}** of {len(all_claims)} rumours")
+
+# ── Cards ─────────────────────────────────────────────────────────────────────
+for row in filtered:
+    cfg   = STATUS_CONFIG.get(row["status"], STATUS_CONFIG["unreviewed"])
+    score = cfg["score"]
+
+    # Use AI title if available, else truncate raw text
+    title   = row["ai_title"] if row["ai_title"] else row["text"][:80]
+    summary = row["ai_summary"][:160] + "…" if len(row["ai_summary"]) > 160 else row["ai_summary"]
+    if not summary:
+        summary = row["text"][:160] + ("…" if len(row["text"]) > 160 else "")
+
+    tags = " · ".join(filter(None, [row["faction"], row["mechanic"]]))
+
+    col_card, col_btn = st.columns([10, 1])
+    with col_card:
+        st.markdown(f"""
+        <div class="rumour-card" style="border-left-color:{cfg['color']}">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+            <span class="badge badge-{row['status']}">{cfg['label']}</span>
+            <span class="meta-text">#{row['id']} · {row['ev_count']} source{'s' if row['ev_count']!=1 else ''}{' · ' + tags if tags else ''}{' · 🤖' if row['summarized'] else ''}</span>
+          </div>
+          <div class="claim-title">{title}</div>
+          <div class="claim-text">{summary}</div>
+          <div class="conf-bar-bg">
+            <div class="conf-bar-fill" style="width:{score}%;background:{cfg['color']}"></div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_btn:
+        st.markdown("<div style='margin-top:18px'></div>", unsafe_allow_html=True)
+        if st.button("Details", key=f"btn_{row['id']}"):
+            st.query_params["claim"] = str(row["id"])
+            st.rerun()

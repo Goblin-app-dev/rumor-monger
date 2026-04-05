@@ -64,9 +64,16 @@ def run_scoring():
     score_run()
 
 
+def run_summarizer():
+    log.info("=== Running AI summarizer ===")
+    from backend.nlp.summarizer import run as summarize_run
+    summarize_run()
+
+
 if __name__ == "__main__":
     run_migration()
     run_scrapers()
     run_nlp()
     run_scoring()
+    run_summarizer()
     log.info("=== Pipeline complete. Launch dashboard with: streamlit run dashboard/app.py ===")

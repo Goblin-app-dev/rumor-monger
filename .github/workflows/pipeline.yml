@@ -25,6 +25,7 @@ jobs:
       REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
       REDDIT_USER_AGENT:    "warhammer-leak-intel/1.0"
       YOUTUBE_API_KEY:      ${{ secrets.YOUTUBE_API_KEY }}
+      GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
 
     steps:
       - name: Checkout
@@ -90,6 +91,10 @@ print('Database reset complete')
 
       - name: Score claims
         run: python backend/scoring/veracity_engine.py
+
+      - name: AI summarize claims (Gemini)
+        run: python backend/nlp/summarizer.py
+        timeout-minutes: 8
 
       - name: Print summary
         run: python -c "

@@ -51,3 +51,10 @@ CREATE INDEX IF NOT EXISTS idx_documents_source_id ON documents(source_id);
 CREATE INDEX IF NOT EXISTS idx_claim_evidence_claim_id ON claim_evidence(claim_id);
 CREATE INDEX IF NOT EXISTS idx_claim_evidence_document_id ON claim_evidence(document_id);
 CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status);
+
+-- AI summarization columns (added for Gemini integration)
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS ai_title       TEXT;
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS ai_summary     TEXT;
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS ai_confidence  TEXT;
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS ai_faction     TEXT;
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS summarized_at  TIMESTAMPTZ;
