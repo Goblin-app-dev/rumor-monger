@@ -38,10 +38,15 @@ def _get_api_key() -> str:
 
 
 def _sanitize(text: str) -> str:
-    """Remove characters that break JSON strings."""
+    """Remove characters that can break prompts or JSON strings."""
     return (text
             .replace('\\', ' ')
-            .replace('"', "'")
+            .replace('"', ' ')
+            .replace("'", ' ')
+            .replace('\u2018', ' ')   # left single quote
+            .replace('\u2019', ' ')   # right single quote
+            .replace('\u201c', ' ')   # left double quote
+            .replace('\u201d', ' ')   # right double quote
             .replace('\n', ' ')
             .replace('\r', ' ')
             .strip())
