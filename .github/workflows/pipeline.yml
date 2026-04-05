@@ -1,0 +1,101 @@
+name: Leak Intel Pipeline
+
+on:
+  # Run automatically every 6 hours
+  schedule:
+    - cron: "0 */6 * * *"
+
+  # Run manually from the Actions tab with optional full-reset
+  workflow_dispatch:
+    inputs:
+      reset_db:
+        description: "Wipe and re-seed the database from scratch"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: warhammer
+          POSTGRES_PASSWORD: warhammer
+          POSTGRES_DB: warhammer_leaks
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://warhammer:warhammer@localhost:5432/warhammer_leaks
+      REDDIT_CLIENT_ID:     ${{ secrets.REDDIT_CLIENT_ID }}
+      REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+      REDDIT_USER_AGENT:    "warhammer-leak-intel/1.0"
+      YOUTUBE_API_KEY:      ${{ secrets.YOUTUBE_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install yt-dlp
+        run: pip install yt-dlp
+
+      - name: Run schema migration
+        run: |
+          PGPASSWORD=warhammer psql -U warhammer -h localhost -d warhammer_leaks \
+            -f migrations/0001_init_schema.sql
+
+      - name: Reset database (manual trigger only)
+        if: ${{ github.event.inputs.reset_db == 'true' }}
+        run: |
+          echo "Resetting database..."
+          PGPASSWORD=warhammer psql -U warhammer -h localhost -d warhammer_leaks -c \
+            "TRUNCATE claim_evidence, claims, documents, sources RESTART IDENTITY CASCADE;"
+
+      - name: Scrape Reddit (Arctic Shift – no key needed)
+        run: python scrapers/reddit_scraper.py
+        timeout-minutes: 2
+
+      - name: Scrape YouTube (yt-dlp – no key needed)
+        run: python scrapers/youtube_scraper.py
+        timeout-minutes: 4
+
+      - name: Scrape Warhammer Community (official – confirmed claims)
+        run: python scrapers/wahammer_community_scraper.py
+        timeout-minutes: 3
+
+      - name: Extract claims
+        run: python backend/nlp/claim_extraction.py
+
+      - name: Score claims
+        run: python backend/scoring/veracity_engine.py
+
+      - name: Print summary
+        run: |
+          PGPASSWORD=warhammer psql -U warhammer -h localhost -d warhammer_leaks -c "
+            SELECT 'sources'   AS table, COUNT(*) FROM sources   UNION ALL
+            SELECT 'documents',          COUNT(*) FROM documents UNION ALL
+            SELECT 'claims',             COUNT(*) FROM claims    UNION ALL
+            SELECT 'evidence',           COUNT(*) FROM claim_evidence;
+            SELECT status, COUNT(*) FROM claims GROUP BY status ORDER BY 2 DESC;
+          "
