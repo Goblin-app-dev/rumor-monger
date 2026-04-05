@@ -126,6 +126,22 @@ def load_stats():
         db.close()
 
 # ── Route: detail view ────────────────────────────────────────────────────────
+# ── DB connectivity guard ────────────────────────────────────────────────────
+import os
+if not os.environ.get("DATABASE_URL"):
+    st.error("DATABASE_URL is not set. Add it in Streamlit Cloud → App settings → Secrets.")
+    st.code('[secrets]\nDATABASE_URL = "postgresql://user:pass@host:5432/dbname"', language="toml")
+    st.stop()
+
+try:
+    from backend.db import engine
+    with engine.connect() as _conn:
+        pass
+except Exception as _e:
+    st.error(f"Cannot connect to the database: {_e}")
+    st.info("Make sure DATABASE_URL in your Streamlit secrets points to a live Postgres instance (e.g. Supabase).")
+    st.stop()
+
 params = st.query_params
 if "claim" in params:
     claim_id = int(params["claim"])
